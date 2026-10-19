@@ -1,0 +1,261 @@
+# Build LGPL-only, statically linked FFmpeg / FFprobe CLI binaries for 4 targets
+# and publish them as a single GitHub Release.
+#
+# License policy (must never be relaxed):
+#   * configure always runs with --disable-gpl --disable-nonfree
+#   * no GPL encoders (x264, x265, xvid, ...) and no nonfree code (libfdk-aac, ...)
+#   * only BSD/MIT/Apache-style external libraries are enabled
+# The produced binaries are standalone CLI executables, meant to be bundled into a
+# downstream application and invoked as a subprocess - never linked as a library.
+
+name: Build FFmpeg (LGPL)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ffmpeg_version:
+        description: "FFmpeg release tag to build"
+        required: true
+        type: choice
+        options:
+          - "n9.0.1"
+          - "n8.0.3"
+        default: "n9.0.1"
+      draft_release:
+        description: "Create the GitHub Release as a draft"
+        required: false
+        type: boolean
+        default: false
+      rebuild_deps:
+        description: "Ignore the dependency cache and rebuild every library from source"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Derive every name used by the build and release jobs in a single place, so
+  # asset names and the release tag can never drift apart between jobs.
+  # ---------------------------------------------------------------------------
+  prepare:
+    name: Prepare build metadata
+    runs-on: ubuntu-latest
+    outputs:
+      ffmpeg_tag: ${{ steps.meta.outputs.ffmpeg_tag }}
+      version: ${{ steps.meta.outputs.version }}
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+    steps:
+      - name: Compute version and release tag
+        id: meta
+        env:
+          # Passed through the environment rather than interpolated into the
+          # script body, so the input can never be parsed as shell syntax.
+          FFMPEG_VERSION_INPUT: ${{ inputs.ffmpeg_version }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          ffmpeg_tag="$FFMPEG_VERSION_INPUT"
+          case "$ffmpeg_tag" in
+              n8.0.3|n9.0.1) ;;
+              *) echo "unsupported FFmpeg tag: $ffmpeg_tag" >&2; exit 1 ;;
+          esac
+          # Strip the leading "n" of the FFmpeg git tag: n9.0.1 -> 9.0.1
+          version="${ffmpeg_tag#n}"
+          release_tag="ffmpeg-${version}-build${RUN_NUMBER}"
+          {
+            echo "ffmpeg_tag=${ffmpeg_tag}"
+            echo "version=${version}"
+            echo "release_tag=${release_tag}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Building FFmpeg ${ffmpeg_tag} -> release ${release_tag}"
+
+  # ---------------------------------------------------------------------------
+  # One parallel job per target. Every job produces exactly two artifacts:
+  #   1. an archive containing ONLY the ffmpeg/ffprobe executables at its root
+  #   2. a plain-text configure/version log used as license-audit evidence
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build ${{ matrix.platform }}-${{ matrix.arch }}
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    # Empty string means "run directly on the runner" - only the Linux targets
+    # use a container.
+    container: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: win
+            arch: x64
+            runner: windows-latest
+            container: ""
+            # Native MinGW-w64 toolchain provided by MSYS2.
+            shell: "msys2 {0}"
+            archive: zip
+            exe_suffix: ".exe"
+
+          - platform: linux
+            arch: x64
+            runner: ubuntu-latest
+            # Built inside an Ubuntu 22.04 container so the binaries only need
+            # glibc 2.35 and therefore run on Ubuntu 22.04 and anything newer.
+            # The runner image itself (24.04) would raise that floor to 2.39.
+            container: "ubuntu:22.04"
+            shell: bash
+            archive: tar.gz
+            exe_suffix: ""
+
+          - platform: linux
+            arch: arm64
+            # Native arm64 runner - free for public repositories, no QEMU needed.
+            runner: ubuntu-24.04-arm
+            # Same glibc 2.35 floor as linux-x64; Docker pulls the arm64 variant
+            # of the image, so this is still a native build.
+            container: "ubuntu:22.04"
+            shell: bash
+            archive: tar.gz
+            exe_suffix: ""
+
+          - platform: macos
+            arch: arm64
+            # macos-latest is Apple Silicon.
+            runner: macos-latest
+            container: ""
+            shell: bash
+            archive: tar.gz
+            exe_suffix: ""
+
+    env:
+      FFMPEG_TAG: ${{ needs.prepare.outputs.ffmpeg_tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      # ffmpeg-<version>-<platform>-<arch>
+      ASSET_BASE: ffmpeg-${{ needs.prepare.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }}
+
+    steps:
+      # The bare ubuntu:22.04 image has neither git nor CA certificates, both of
+      # which actions/checkout needs. This must run before the checkout step.
+      - name: Bootstrap container
+        if: matrix.container != ''
+        run: |
+          set -eux
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y --no-install-recommends ca-certificates git curl xz-utils
+          git config --global --add safe.directory '*'
+
+      - name: Checkout build scripts
+        uses: actions/checkout@v7
+
+      - name: Set up MSYS2 toolchain
+        if: matrix.platform == 'win'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          # Only the bootstrap packages; scripts/install-build-tools.sh installs
+          # the rest so that the package list lives in one place.
+          install: >-
+            base-devel
+            git
+
+      # The dependency prefix is expensive to produce (libaom alone dominates the
+      # build time). The key tracks scripts/versions.sh only: editing a build
+      # script must not discard a good set of compiled libraries, and a partial
+      # prefix left behind by a failed job lets the next run resume instead of
+      # starting over. Use the rebuild_deps input for a cold build.
+      - name: Restore dependency cache
+        id: deps-cache
+        if: ${{ !inputs.rebuild_deps }}
+        uses: actions/cache@v6
+        with:
+          path: build/prefix
+          key: ffmpeg-deps-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('scripts/versions.sh') }}
+
+      - name: Install build tools
+        run: bash scripts/install-build-tools.sh
+
+      - name: Build third-party libraries from source
+        run: bash scripts/build-deps.sh
+
+      - name: Build FFmpeg
+        run: bash scripts/build-ffmpeg.sh
+
+      # Fails the job if the produced binary carries any GPL/nonfree/version3
+      # component, and writes ${ASSET_BASE}.configure.txt as audit evidence.
+      - name: Verify license policy and write configure log
+        run: bash scripts/verify-license.sh
+
+      # Produces ${ASSET_BASE}.${{ matrix.archive }} holding nothing but
+      # ffmpeg${{ matrix.exe_suffix }} and ffprobe${{ matrix.exe_suffix }}.
+      - name: Package binaries
+        run: bash scripts/package.sh
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ASSET_BASE }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/${{ env.ASSET_BASE }}.${{ matrix.archive }}
+            dist/${{ env.ASSET_BASE }}.configure.txt
+
+  # ---------------------------------------------------------------------------
+  # Collect all 10 files (5 archives + 5 configure logs) and publish one Release.
+  # ---------------------------------------------------------------------------
+  release:
+    name: Publish GitHub Release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release scripts
+        uses: actions/checkout@v7
+
+      # merge-multiple flattens the four per-target artifacts into one directory
+      # holding 5 archives and 5 configure logs.
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: artifacts
+        run: |
+          set -eux
+          sha256sum -- *.zip *.tar.gz *.configure.txt > checksums.sha256
+          cat checksums.sha256
+
+      - name: Generate release notes
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -eux
+          bash scripts/release-notes.sh \
+            "${{ needs.prepare.outputs.version }}" \
+            "${{ needs.prepare.outputs.release_tag }}" \
+            artifacts > release-notes.md
+          cat release-notes.md
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.prepare.outputs.release_tag }}
+          name: FFmpeg ${{ needs.prepare.outputs.version }} (LGPL) - build ${{ github.run_number }}
+          body_path: release-notes.md
+          draft: ${{ inputs.draft_release }}
+          # A release is only ever cut from a run where all four targets
+          # succeeded, so a missing file must fail the job rather than publish an
+          # incomplete set of assets.
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/*.zip
+            artifacts/*.tar.gz
+            artifacts/*.configure.txt
+            artifacts/checksums.sha256

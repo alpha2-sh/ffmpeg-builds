@@ -1,0 +1,35 @@
+From 0661ef6bb3e50f502e79d3c5fea1c83e860f1d09 Mon Sep 17 00:00:00 2001
+From: Hans-Kristian Arntzen <post@arntzen-software.no>
+Date: Tue, 14 Jul 2026 11:25:24 +0200
+Subject: [PATCH] avcodec/h264: Ensure that private HW data is freed early for
+ pictures.
+
+Vulkan video decode holds a reference to a VkSemaphore that is waited on
+in ff_vk_decode_free_frame.
+The bug manifests when a H264 stream changes resolution (or similar)
+where the stream needs to be reset in-flight.
+In this case, the wait_semaphores call ends up waiting on a destroyed
+semaphore, leading to segfaults in drivers. FFVulkanDecodePicture does
+not hold an owning reference to the semaphore, so destruction order
+matters in this case.
+
+Vulkan validation flags the error as waiting on an invalid semaphore.
+---
+ libavcodec/h264_picture.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/libavcodec/h264_picture.c b/libavcodec/h264_picture.c
+index aa3d2629c8d21..ce75b0cc89114 100644
+--- a/libavcodec/h264_picture.c
++++ b/libavcodec/h264_picture.c
+@@ -44,9 +44,9 @@ void ff_h264_unref_picture(H264Picture *pic)
+     if (!pic->f || !pic->f->buf[0])
+         return;
+ 
++    av_refstruct_unref(&pic->hwaccel_picture_private);
+     ff_thread_release_ext_buffer(&pic->tf);
+     av_frame_unref(pic->f_grain);
+-    av_refstruct_unref(&pic->hwaccel_picture_private);
+ 
+     av_refstruct_unref(&pic->qscale_table_base);
+     av_refstruct_unref(&pic->mb_type_base);
