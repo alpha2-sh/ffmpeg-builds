@@ -134,6 +134,7 @@ esac
     dep_row libvpx    "$VPX_VERSION"    "BSD-3-Clause"
     dep_row dav1d     "$DAV1D_VERSION"  "BSD-2-Clause"
     dep_row libaom    "$AOM_VERSION"    "BSD-2-Clause + AOM Patent License 1.0"
+    dep_row SVT-AV1   "$SVTAV1_VERSION" "BSD-3-Clause-Clear + AOM Patent License 1.0"
     dep_row libwebp   "$WEBP_VERSION"   "BSD-3-Clause"
     if [ "$PLATFORM" = "linux" ]; then
         dep_row Vulkan-Headers "$VULKAN_HEADERS_VERSION" "Apache-2.0 OR MIT (headers only)"

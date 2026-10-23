@@ -17,5 +17,6 @@ OPUS_VERSION="v1.6.1"       # BSD-3-Clause
 VPX_VERSION="v1.17.0"       # BSD-3-Clause
 DAV1D_VERSION="1.5.4"       # BSD-2-Clause
 AOM_VERSION="v3.15.0"       # BSD-2-Clause + Alliance for Open Media Patent License
+SVTAV1_VERSION="v4.2.0"     # BSD-3-Clause-Clear + Alliance for Open Media Patent License
 WEBP_VERSION="v1.6.0"       # BSD-3-Clause
 VULKAN_HEADERS_VERSION="v1.4.330" # Apache-2.0 OR MIT; Linux Vulkan Video build headers

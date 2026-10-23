@@ -60,6 +60,9 @@ REQUIRED=(
     --disable-static
     --enable-shared
     --enable-libdav1d
+    --enable-libopus
+    --enable-libvpx
+    --enable-libsvtav1
 )
 
 violations=0
@@ -139,7 +142,8 @@ int main(void) {
         "h264_vulkan", "hevc_vulkan", "av1_vulkan",
         "h264_videotoolbox", "hevc_videotoolbox",
         "h264_mf", "hevc_mf",
-        "h264_d3d12va", "hevc_d3d12va", "av1_d3d12va", NULL
+        "h264_d3d12va", "hevc_d3d12va", "av1_d3d12va",
+        "libopus", "libvpx", "libvpx-vp9", "libsvtav1", NULL
     };
     for (const char **name = encoders; *name; name++)
         if (avcodec_find_encoder_by_name(*name))
@@ -191,6 +195,9 @@ require_runtime_feature() {
     }
 }
 require_runtime_feature "decoder: libdav1d"
+for encoder in libopus libvpx libvpx-vp9 libsvtav1; do
+    require_runtime_feature "encoder: $encoder"
+done
 for bsf in extract_extradata h264_metadata hevc_metadata av1_metadata; do
     require_runtime_feature "bsf: $bsf"
 done
@@ -265,14 +272,16 @@ done
     exit 1
 }
 
-# dav1d is statically included; libavcodec must not need a separate dav1d library.
+# The codec libraries are statically included; libavcodec must not need a
+# separate dav1d, opus, vpx or SVT-AV1 library.
 case "$PLATFORM" in
-    linux) avcodec_deps="$(readelf -d "$SDK_PREFIX"/lib/libavcodec.so.* 2>&1)" ;;
+    linux) avcodec_deps="$(readelf -d "$SDK_PREFIX"/lib/libavcodec.so.* 2>&1 | grep NEEDED)" ;;
     macos) avcodec_deps="$(otool -L "$SDK_PREFIX"/lib/libavcodec*.dylib 2>&1)" ;;
-    win) avcodec_deps="$(objdump -p "$SDK_PREFIX"/bin/avcodec-*.dll 2>&1)" ;;
+    # Only the import lines: the export table would match the patterns below.
+    win) avcodec_deps="$(objdump -p "$SDK_PREFIX"/bin/avcodec-*.dll 2>&1 | grep 'DLL Name')" ;;
 esac
-if grep -qi 'dav1d' <<<"$avcodec_deps"; then
-    echo "libavcodec links dav1d dynamically; it must be statically included" >&2
+if grep -qiE 'dav1d|opus|vpx|svtav1' <<<"$avcodec_deps"; then
+    echo "libavcodec links a codec library dynamically; it must be statically included" >&2
     exit 1
 fi
 
@@ -291,6 +300,9 @@ fi
     echo "-------------------"
     echo "zlib            $ZLIB_VERSION (zlib license; statically included)"
     echo "dav1d           $DAV1D_VERSION (BSD-2-Clause; statically included)"
+    echo "libopus         $OPUS_VERSION (BSD-3-Clause; statically included)"
+    echo "libvpx          $VPX_VERSION (BSD-3-Clause; statically included)"
+    echo "SVT-AV1         $SVTAV1_VERSION (BSD-3-Clause-Clear + AOM Patent License 1.0; statically included)"
     if [ "$PLATFORM" = "linux" ]; then
         echo "Vulkan-Headers  $VULKAN_HEADERS_VERSION (Apache-2.0 OR MIT; headers only)"
     fi

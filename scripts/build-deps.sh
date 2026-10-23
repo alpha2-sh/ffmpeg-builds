@@ -94,8 +94,9 @@ build_vpx() {
     # libvpx cannot auto-detect the MinGW host, it has to be named explicitly.
     [ "$PLATFORM" = "win" ] && args+=(--target=x86_64-win64-gcc)
     ./configure "${args[@]}"
-    make -j"$JOBS"
-    make install
+    # libvpx's makefiles install into $DIST_DIR when it is set in the environment.
+    env -u DIST_DIR make -j"$JOBS"
+    env -u DIST_DIR make install
     purge_shared_libs
     stamp_write vpx
 }
@@ -138,6 +139,22 @@ build_aom() {
         -DENABLE_NASM=1
     purge_shared_libs
     stamp_write aom
+}
+
+# ---------------------------------------------------------------------------
+# SVT-AV1 (BSD-3-Clause-Clear + AOM Patent License 1.0) - fast AV1 encoder.
+# LTO stays off so the archive holds ordinary object code that FFmpeg's
+# non-LTO link can consume.
+# ---------------------------------------------------------------------------
+build_svtav1() {
+    stamp_done svtav1 && { log "SVT-AV1: cached"; return 0; }
+    fetch_source svtav1 https://gitlab.com/AOMediaCodec/SVT-AV1.git "$SVTAV1_VERSION"
+    cmake_build "$SRC_DIR/svtav1" \
+        -DBUILD_APPS=OFF \
+        -DBUILD_TESTING=OFF \
+        -DSVT_AV1_LTO=OFF
+    purge_shared_libs
+    stamp_write svtav1
 }
 
 # ---------------------------------------------------------------------------
@@ -185,6 +202,7 @@ build_opus
 build_vpx
 build_dav1d
 build_aom
+build_svtav1
 build_webp
 build_vulkan_headers
 

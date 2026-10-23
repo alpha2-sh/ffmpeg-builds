@@ -43,6 +43,7 @@ CONFIGURE_ARGS=(
     --enable-libvpx
     --enable-libdav1d
     --enable-libaom
+    --enable-libsvtav1
     --enable-libwebp
 
     # Explicitly refuse the GPL/nonfree encoders even though --disable-gpl and

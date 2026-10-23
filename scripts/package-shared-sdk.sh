@@ -8,6 +8,9 @@ SHARED_SDK_DEPS_PREFIX="${SHARED_SDK_DEPS_PREFIX:-$BUILD_ROOT/shared-sdk-deps-pr
 FFMPEG_SOURCE_DIR="${FFMPEG_SOURCE_DIR:-$SRC_DIR/ffmpeg-shared-sdk}"
 ZLIB_SOURCE_DIR="$SRC_DIR/zlib-shared-sdk"
 DAV1D_SOURCE_DIR="$SRC_DIR/dav1d-shared-sdk"
+OPUS_SOURCE_DIR="$SRC_DIR/opus-shared-sdk"
+VPX_SOURCE_DIR="$SRC_DIR/vpx-shared-sdk"
+SVTAV1_SOURCE_DIR="$SRC_DIR/svtav1-shared-sdk"
 VULKAN_HEADERS_SOURCE_DIR="$SRC_DIR/vulkan-headers-shared-sdk"
 LIBRARIES=(avcodec avdevice avfilter avformat avutil swresample swscale)
 PACKAGE_ROOT="$BUILD_ROOT/shared-sdk-package"
@@ -15,7 +18,8 @@ STAGE="$PACKAGE_ROOT/$ASSET_BASE"
 
 rm -rf "$PACKAGE_ROOT"
 mkdir -p "$STAGE/bin" "$STAGE/lib/pkgconfig" "$STAGE/include" \
-    "$STAGE/licenses/FFmpeg" "$STAGE/licenses/zlib" "$STAGE/licenses/dav1d"
+    "$STAGE/licenses/FFmpeg" "$STAGE/licenses/zlib" "$STAGE/licenses/dav1d" \
+    "$STAGE/licenses/opus" "$STAGE/licenses/libvpx" "$STAGE/licenses/SVT-AV1"
 
 for library in "${LIBRARIES[@]}"; do
     cp -R "$SDK_PREFIX/include/lib$library" "$STAGE/include/"
@@ -55,6 +59,11 @@ for notice in COPYING.LGPLv2.1 COPYING.LGPLv3 LICENSE.md CREDITS; do
 done
 cp "$ZLIB_SOURCE_DIR/LICENSE" "$STAGE/licenses/zlib/"
 cp "$DAV1D_SOURCE_DIR/COPYING" "$STAGE/licenses/dav1d/"
+cp "$OPUS_SOURCE_DIR/COPYING" "$STAGE/licenses/opus/"
+cp "$VPX_SOURCE_DIR/LICENSE" "$VPX_SOURCE_DIR/PATENTS" "$VPX_SOURCE_DIR/AUTHORS" \
+    "$STAGE/licenses/libvpx/"
+cp "$SVTAV1_SOURCE_DIR/LICENSE.md" "$SVTAV1_SOURCE_DIR/PATENTS.md" \
+    "$STAGE/licenses/SVT-AV1/"
 
 if [ "$PLATFORM" = "linux" ]; then
     [ -d "$SHARED_SDK_DEPS_PREFIX/include/vulkan" ] || {

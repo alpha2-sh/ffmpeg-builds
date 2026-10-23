@@ -63,6 +63,7 @@ runner image.
 | [libvpx](https://github.com/webmproject/libvpx)   | v1.17.0 | BSD-3-Clause                          | VP8 / VP9 video |
 | [dav1d](https://code.videolan.org/videolan/dav1d) | 1.5.4   | BSD-2-Clause                          | AV1 decoding    |
 | [libaom](https://aomedia.googlesource.com/aom)    | v3.15.0 | BSD-2-Clause + AOM Patent License 1.0 | AV1 encoding    |
+| [SVT-AV1](https://gitlab.com/AOMediaCodec/SVT-AV1) | v4.2.0 | BSD-3-Clause-Clear + AOM Patent License 1.0 | Fast AV1 encoding |
 | [libwebp](https://github.com/webmproject/libwebp) | v1.6.0  | BSD-3-Clause                          | WebP images     |
 | [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | v1.4.330 | Apache-2.0 OR MIT | Linux Vulkan Video build/public headers |
 
@@ -70,8 +71,9 @@ FFmpeg itself is LGPL-2.1-or-later under this configuration.
 
 Codec **patent** licensing is a separate matter from copyright licensing and is
 not covered by the LGPL. AV1 is distributed under the Alliance for Open Media
-Patent License 1.0. No third-party H.264/HEVC software encoder or FDK-AAC is
-bundled; platform hardware APIs may still expose those patented codecs.
+Patent License 1.0, and libvpx ships Google's VP8/VP9 patent grant. No
+third-party H.264/HEVC software encoder or FDK-AAC is bundled; platform hardware
+APIs may still expose those patented codecs.
 
 ### Deliberately excluded
 
@@ -201,8 +203,9 @@ Each archive contains:
   and `swscale` libraries;
 - public headers for those seven libraries;
 - relocatable pkg-config files and Windows import libraries;
-- FFmpeg's LGPL license and notice files plus the zlib and dav1d licenses, and
-  on Linux the Vulkan-Headers license texts.
+- FFmpeg's LGPL license and notice files plus the zlib, dav1d, libopus, libvpx
+  and SVT-AV1 licenses (with the libvpx and SVT-AV1 patent grants), and on Linux
+  the Vulkan-Headers license texts.
 
 The seven-library set is intentional: `rusty_ffmpeg 0.16.7+ffmpeg.8` probes all
 seven even when an application directly calls only a subset.
@@ -219,6 +222,8 @@ components:
 - every target must provide the `extract_extradata`, `h264_metadata`,
   `hevc_metadata` and `av1_metadata` bitstream filters, and `--disable-bsfs` is
   rejected;
+- every target must provide the `libdav1d` decoder and the `libopus`, `libvpx`,
+  `libvpx-vp9` and `libsvtav1` software encoders;
 - Windows must provide the `h264_d3d12va`, `hevc_d3d12va` and `av1_d3d12va`
   encoders (only `hevc_d3d12va` for 8.0.3, which predates the other two).
   FFmpeg's configure enables them only when the MinGW-w64 `d3d12video.h` headers
@@ -240,7 +245,12 @@ frame layout, so code built against 8.0 headers must not load 8.1 libraries.
 zlib 1.3.1 is built from pinned source and statically included so PNG corpus
 decoding works without another runtime library. dav1d 1.5.4 is built the same
 way and statically included, so AV1 decodes in software (`libdav1d`) on every
-target, also where no hardware AV1 decoder exists. Linux SDKs additionally package
+target, also where no hardware AV1 decoder exists. libopus 1.6.1, libvpx 1.17.0
+and SVT-AV1 4.2.0 are statically included the same way, for software Opus, VP8/VP9
+and AV1 encoding where no hardware encoder exists. On Windows, opus is built
+without its stack protector and fortify options (MinGW would link them to
+`libssp-0.dll`) and libvpx's pthread calls are resolved from the static
+winpthread archive. Linux SDKs additionally package
 pinned Vulkan public headers, but not the Vulkan loader, ICD or GPU driver. The
 dependency prefix remains separate from the static CLI dependency prefix.
 
@@ -356,7 +366,7 @@ glibc, so it will not carry the 2.35 floor that the CI container guarantees.
 │   ├── verify-license.sh         # license gate + audit report
 │   ├── package.sh                # archive containing only ffmpeg + ffprobe
 │   ├── release-notes.sh          # release body with the download table
-│   ├── build-shared-sdk-deps.sh  # isolated zlib/dav1d/Vulkan-Headers build
+│   ├── build-shared-sdk-deps.sh  # isolated zlib/dav1d/opus/vpx/SVT-AV1/Vulkan-Headers build
 │   ├── build-shared-sdk.sh       # FFmpeg 8/9 shared libraries
 │   ├── verify-shared-sdk.sh      # SDK ABI/license/runtime audit
 │   ├── package-shared-sdk.sh     # relocatable SDK archive

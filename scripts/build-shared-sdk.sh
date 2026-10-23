@@ -16,10 +16,12 @@ esac
 SDK_PREFIX="${SDK_PREFIX:-$BUILD_ROOT/shared-sdk-prefix}"
 SHARED_SDK_DEPS_PREFIX="${SHARED_SDK_DEPS_PREFIX:-$BUILD_ROOT/shared-sdk-deps-prefix}"
 export SDK_PREFIX
-[ -f "$SHARED_SDK_DEPS_PREFIX/lib/libz.a" ] && [ -f "$SHARED_SDK_DEPS_PREFIX/lib/libdav1d.a" ] || {
-    echo "missing shared SDK dependencies; run scripts/build-shared-sdk-deps.sh first" >&2
-    exit 1
-}
+for dependency in z dav1d opus vpx SvtAv1Enc; do
+    [ -f "$SHARED_SDK_DEPS_PREFIX/lib/lib$dependency.a" ] || {
+        echo "missing shared SDK dependencies; run scripts/build-shared-sdk-deps.sh first" >&2
+        exit 1
+    }
+done
 export PKG_CONFIG_PATH="$SHARED_SDK_DEPS_PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 rm -rf "$SDK_PREFIX"
 mkdir -p "$SDK_PREFIX"
@@ -76,6 +78,10 @@ CONFIGURE_ARGS=(
     --enable-zlib
     # Software AV1 decoding (BSD-2-Clause dav1d, statically included).
     --enable-libdav1d
+    # Software Opus, VP8/VP9 and AV1 encoding (BSD-style, statically included).
+    --enable-libopus
+    --enable-libvpx
+    --enable-libsvtav1
     --pkg-config-flags=--static
     --extra-cflags="-I$SHARED_SDK_DEPS_PREFIX/include"
     --extra-ldflags="-L$SHARED_SDK_DEPS_PREFIX/lib"
