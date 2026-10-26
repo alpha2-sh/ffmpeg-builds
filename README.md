@@ -44,7 +44,9 @@ are deliberately kept at LGPL-2.1-or-later.
 The GPL x264/x265 software encoders are not included. H.264 and HEVC hardware
 encoding is nevertheless available when the operating system, GPU and driver
 expose it through VideoToolbox (macOS), Media Foundation/D3D12VA (Windows), or
-Vulkan Video (Linux). Codec patent licensing remains separate from the LGPL.
+Vulkan Video (Linux). The shared SDK additionally includes NVIDIA NVENC on Linux
+and Windows; the static CLI release line does not. Codec patent licensing
+remains separate from the LGPL.
 
 ---
 
@@ -66,6 +68,7 @@ runner image.
 | [SVT-AV1](https://gitlab.com/AOMediaCodec/SVT-AV1) | v4.2.0 | BSD-3-Clause-Clear + AOM Patent License 1.0 | Fast AV1 encoding |
 | [libwebp](https://github.com/webmproject/libwebp) | v1.6.0  | BSD-3-Clause                          | WebP images     |
 | [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | v1.4.330 | Apache-2.0 OR MIT | Linux Vulkan Video build/public headers |
+| [nv-codec-headers](https://github.com/FFmpeg/nv-codec-headers) | n12.1.14.0 | MIT | NVENC API, headers only; Linux/Windows shared SDK only |
 
 FFmpeg itself is LGPL-2.1-or-later under this configuration.
 
@@ -85,16 +88,27 @@ APIs may still expose those patented codecs.
   pipes and plain `http://` work.
 - iconv, so `-sub_charenc` subtitle charset conversion is unavailable.
 - Vendor-specific Linux acceleration APIs (VAAPI, VDPAU, QSV and V4L2 M2M).
-  Linux uses Vulkan Video exclusively; the system supplies `libvulkan.so.1`,
+  Linux decodes through Vulkan Video only; the system supplies `libvulkan.so.1`,
   its ICD and the GPU driver.
+- NVIDIA NVDEC/CUVID decoding and the CUDA filters. The CUDA filters need
+  `cuda_nvcc` or `libnpp`, which are nonfree and never enabled.
+
+NVENC encoding is included in the shared SDK. FFmpeg loads the NVIDIA driver
+libraries (`libcuda.so.1`, `libnvidia-encode.so.1`, `nvcuda.dll`,
+`nvEncodeAPI64.dll`) at run time, so nothing from NVIDIA is linked or shipped.
+Only the MIT nv-codec-headers are used at build time.
 
 ### Hardware acceleration
 
 | Platform | Enabled APIs | Build dependencies | Runtime dependencies |
 | :------- | :----------- | :----------------- | :------------------- |
-| Windows | D3D11VA, D3D12VA, DXVA2, Media Foundation | MinGW-w64 Windows SDK | Windows and the GPU driver |
+| Windows | D3D11VA, D3D12VA, DXVA2, Media Foundation; NVENC (NVIDIA) for encoding in the shared SDK | MinGW-w64 Windows SDK; pinned nv-codec-headers | Windows and the GPU driver; NVIDIA driver >= 531.61 for NVENC only |
 | macOS | VideoToolbox | Xcode SDK frameworks | macOS and the GPU driver |
-| Linux | Vulkan Video only | pinned Vulkan-Headers | `libvulkan.so.1`, a Vulkan ICD and codec-specific Vulkan Video extensions |
+| Linux | Vulkan Video; NVENC (NVIDIA) for encoding in the shared SDK | pinned Vulkan-Headers; pinned nv-codec-headers | `libvulkan.so.1`, a Vulkan ICD and codec-specific Vulkan Video extensions; NVIDIA driver >= 530.41.03 for NVENC only |
+
+The NVIDIA driver is needed for NVENC only: the libraries load and every other
+codec works without it. The static CLI release line is unchanged and does not
+include NVENC.
 
 FFmpeg 8.0.3, 8.1.3 and 9.0.1 include Vulkan hardware decoding for H.264, HEVC and
 AV1, plus H.264 and HEVC Vulkan encoders. The pinned Vulkan 1.4 headers also
@@ -204,8 +218,9 @@ Each archive contains:
 - public headers for those seven libraries;
 - relocatable pkg-config files and Windows import libraries;
 - FFmpeg's LGPL license and notice files plus the zlib, dav1d, libopus, libvpx
-  and SVT-AV1 licenses (with the libvpx and SVT-AV1 patent grants), and on Linux
-  the Vulkan-Headers license texts.
+  and SVT-AV1 licenses (with the libvpx and SVT-AV1 patent grants), on Linux
+  the Vulkan-Headers license texts, and on Linux and Windows the nv-codec-headers
+  MIT notice.
 
 The seven-library set is intentional: `rusty_ffmpeg 0.16.7+ffmpeg.8` probes all
 seven even when an application directly calls only a subset.
@@ -224,6 +239,13 @@ components:
   rejected;
 - every target must provide the `libdav1d` decoder and the `libopus`, `libvpx`,
   `libvpx-vp9` and `libsvtav1` software encoders;
+- Linux and Windows must provide the `h264_nvenc`, `hevc_nvenc` and `av1_nvenc`
+  encoders, and the configuration must contain `--enable-ffnvcodec
+  --enable-nvenc --disable-cuvid --disable-nvdec`. The nonfree
+  `--enable-cuda-nvcc`, `--enable-cuda-sdk` and `--enable-libnpp` are rejected;
+- Linux must register exactly the `vulkan` and `cuda` hardware device types
+  (ffnvcodec registers `cuda` for NVENC); Windows must register `cuda` beside
+  `d3d11va`, `d3d12va` and `dxva2`;
 - Windows must provide the `h264_d3d12va`, `hevc_d3d12va` and `av1_d3d12va`
   encoders (only `hevc_d3d12va` for 8.0.3, which predates the other two).
   FFmpeg's configure enables them only when the MinGW-w64 `d3d12video.h` headers
@@ -235,7 +257,11 @@ components:
   Toolchain runtimes such as `libstdc++-6.dll`, `libgcc_s_seh-1.dll` or
   `libwinpthread-1.dll` fail the build. On Windows this is why the C++
   `gfxcapture` filter (FFmpeg 8.1+) is disabled and winpthread is linked
-  statically.
+  statically;
+- no SDK library may name `cuda`, `nvidia`, `nvcuvid` or `nvEncodeAPI` in its
+  `DT_NEEDED` entries (Linux) or import table (Windows), which proves the NVIDIA
+  driver is only loaded at run time. The CI runners have no NVIDIA driver, so the
+  post-build load test also proves the SDK works without one.
 
 The SDK libraries can be swapped only for FFmpeg builds from the same minor
 release series (for example 8.1.x). FFmpeg minor releases may change public
@@ -251,7 +277,11 @@ and AV1 encoding where no hardware encoder exists. On Windows, opus is built
 without its stack protector and fortify options (MinGW would link them to
 `libssp-0.dll`) and libvpx's pthread calls are resolved from the static
 winpthread archive. Linux SDKs additionally package
-pinned Vulkan public headers, but not the Vulkan loader, ICD or GPU driver. The
+pinned Vulkan public headers, but not the Vulkan loader, ICD or GPU driver.
+Linux and Windows SDKs are built against the pinned nv-codec-headers 12.1.14.0
+(Video Codec SDK 12.0.16 API, which includes AV1). These were chosen over the
+n13 headers, which need driver 570+, because the oldest supported datacenter
+driver branch (R535) is above the 530.41.03 / 531.61 floor. The
 dependency prefix remains separate from the static CLI dependency prefix.
 
 Upstream FFmpeg fixes that a release line needs before upstream ships them in
@@ -366,7 +396,7 @@ glibc, so it will not carry the 2.35 floor that the CI container guarantees.
 │   ├── verify-license.sh         # license gate + audit report
 │   ├── package.sh                # archive containing only ffmpeg + ffprobe
 │   ├── release-notes.sh          # release body with the download table
-│   ├── build-shared-sdk-deps.sh  # isolated zlib/dav1d/opus/vpx/SVT-AV1/Vulkan-Headers build
+│   ├── build-shared-sdk-deps.sh  # isolated zlib/dav1d/opus/vpx/SVT-AV1/Vulkan-Headers/nv-codec-headers build
 │   ├── build-shared-sdk.sh       # FFmpeg 8/9 shared libraries
 │   ├── verify-shared-sdk.sh      # SDK ABI/license/runtime audit
 │   ├── package-shared-sdk.sh     # relocatable SDK archive

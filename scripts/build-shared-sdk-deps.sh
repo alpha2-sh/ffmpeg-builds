@@ -149,3 +149,15 @@ if [ "$PLATFORM" = "linux" ]; then
     cmake --install "$(native_path "$SRC_DIR/vulkan-headers-shared-sdk/_build")"
     log "installed Vulkan-Headers $VULKAN_HEADERS_VERSION for the shared SDK"
 fi
+
+# nv-codec-headers (MIT, headers only) declare the NVENC API. FFmpeg loads the
+# NVIDIA driver libraries at run time, so nothing from NVIDIA is linked or
+# shipped. The install puts include/ffnvcodec/*.h and ffnvcodec.pc in the prefix.
+if [ "$PLATFORM" = "linux" ] || [ "$PLATFORM" = "win" ]; then
+    fetch_source nv-codec-headers-shared-sdk \
+        https://github.com/FFmpeg/nv-codec-headers.git \
+        "$NV_CODEC_HEADERS_VERSION"
+    make -C "$SRC_DIR/nv-codec-headers-shared-sdk" \
+        PREFIX="$SHARED_SDK_DEPS_PREFIX" install
+    log "installed nv-codec-headers $NV_CODEC_HEADERS_VERSION for the shared SDK"
+fi

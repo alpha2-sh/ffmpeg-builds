@@ -22,6 +22,12 @@ for dependency in z dav1d opus vpx SvtAv1Enc; do
         exit 1
     }
 done
+if [ "$PLATFORM" = "linux" ] || [ "$PLATFORM" = "win" ]; then
+    [ -f "$SHARED_SDK_DEPS_PREFIX/lib/pkgconfig/ffnvcodec.pc" ] || {
+        echo "missing nv-codec-headers (ffnvcodec.pc); run scripts/build-shared-sdk-deps.sh first" >&2
+        exit 1
+    }
+fi
 export PKG_CONFIG_PATH="$SHARED_SDK_DEPS_PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 rm -rf "$SDK_PREFIX"
 mkdir -p "$SDK_PREFIX"
@@ -98,6 +104,15 @@ case "$PLATFORM" in
             --disable-v4l2-m2m
             --disable-libmfx
             --disable-libvpl
+            # NVENC encoding through the MIT nv-codec-headers. The NVIDIA
+            # driver libraries are loaded at run time, never linked.
+            --enable-ffnvcodec
+            --enable-nvenc
+            # Explicit for the audit trail: decode stays on Vulkan, no CUDA
+            # filters, nothing nonfree.
+            --disable-cuvid
+            --disable-nvdec
+            --disable-cuda-llvm
         )
         ;;
     macos)
@@ -117,6 +132,15 @@ case "$PLATFORM" in
             --enable-d3d12va
             --enable-dxva2
             --enable-mediafoundation
+            # NVENC encoding through the MIT nv-codec-headers. The NVIDIA
+            # driver libraries are loaded at run time, never linked.
+            --enable-ffnvcodec
+            --enable-nvenc
+            # Explicit for the audit trail: decode stays on D3D, no CUDA
+            # filters, nothing nonfree.
+            --disable-cuvid
+            --disable-nvdec
+            --disable-cuda-llvm
             # gfxcapture (FFmpeg 8.1+) is C++ and would make avfilter import
             # libstdc++-6.dll and libgcc_s_seh-1.dll from the MinGW toolchain.
             --disable-filter=gfxcapture

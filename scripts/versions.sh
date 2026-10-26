@@ -20,3 +20,4 @@ AOM_VERSION="v3.15.0"       # BSD-2-Clause + Alliance for Open Media Patent Lice
 SVTAV1_VERSION="v4.2.0"     # BSD-3-Clause-Clear + Alliance for Open Media Patent License
 WEBP_VERSION="v1.6.0"       # BSD-3-Clause
 VULKAN_HEADERS_VERSION="v1.4.330" # Apache-2.0 OR MIT; Linux Vulkan Video build headers
+NV_CODEC_HEADERS_VERSION="n12.1.14.0" # MIT, headers only. Video Codec SDK 12.0.16 API; NVENC needs NVIDIA driver >= 530.41.03 (Linux) / >= 531.61 (Windows) at run time

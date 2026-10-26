@@ -50,6 +50,11 @@ FORBIDDEN=(
     --enable-libvmaf
     --enable-mbedtls
     --disable-bsfs
+    # Nonfree NVIDIA components (HWACCEL_LIBRARY_NONFREE_LIST). NVENC needs
+    # none of them.
+    --enable-cuda-nvcc
+    --enable-cuda-sdk
+    --enable-libnpp
 )
 REQUIRED=(
     --disable-gpl
@@ -89,14 +94,16 @@ require_build_option() {
 case "$PLATFORM" in
     linux)
         for option in --enable-vulkan --disable-vaapi --disable-vdpau \
-            --disable-libdrm --disable-v4l2-m2m --disable-libmfx --disable-libvpl; do
+            --disable-libdrm --disable-v4l2-m2m --disable-libmfx --disable-libvpl \
+            --enable-ffnvcodec --enable-nvenc --disable-cuvid --disable-nvdec; do
             require_build_option "$option"
         done
         ;;
     macos) require_build_option --enable-videotoolbox ;;
     win)
         for option in --enable-d3d11va --enable-d3d12va --enable-dxva2 \
-            --enable-mediafoundation; do
+            --enable-mediafoundation --enable-ffnvcodec --enable-nvenc \
+            --disable-cuvid --disable-nvdec; do
             require_build_option "$option"
         done
         ;;
@@ -143,6 +150,7 @@ int main(void) {
         "h264_videotoolbox", "hevc_videotoolbox",
         "h264_mf", "hevc_mf",
         "h264_d3d12va", "hevc_d3d12va", "av1_d3d12va",
+        "h264_nvenc", "hevc_nvenc", "av1_nvenc",
         "libopus", "libvpx", "libvpx-vp9", "libsvtav1", NULL
     };
     for (const char **name = encoders; *name; name++)
@@ -162,6 +170,8 @@ EOF
 cc "$AUDIT_DIR/audit.c" -o "$AUDIT_DIR/audit$EXE" \
     $(pkg-config --cflags --libs libavcodec libswresample libavutil)
 
+# The CI runners have no NVIDIA driver, so this load also proves that the SDK
+# libraries load and register NVENC without libcuda or libnvidia-encode.
 case "$PLATFORM" in
     linux) RUNTIME_REPORT="$(LD_LIBRARY_PATH="$SDK_PREFIX/lib" "$AUDIT_DIR/audit$EXE")" ;;
     macos) RUNTIME_REPORT="$(DYLD_LIBRARY_PATH="$SDK_PREFIX/lib" "$AUDIT_DIR/audit$EXE")" ;;
@@ -204,10 +214,12 @@ done
 case "$PLATFORM" in
     linux)
         require_runtime_feature "hwdevice: vulkan"
+        # ffnvcodec registers the cuda device type that NVENC uses.
+        require_runtime_feature "hwdevice: cuda"
         UNEXPECTED_HWDEVICES="$(sed -n 's/^hwdevice: //p' <<<"$RUNTIME_REPORT" \
-            | grep -vx 'vulkan' || true)"
+            | grep -vxE 'vulkan|cuda' || true)"
         [ -z "$UNEXPECTED_HWDEVICES" ] || {
-            echo "Linux shared SDK must expose Vulkan only; unexpected devices:" >&2
+            echo "Linux shared SDK must expose exactly Vulkan and CUDA; unexpected devices:" >&2
             printf '%s\n' "$UNEXPECTED_HWDEVICES" >&2
             exit 1
         }
@@ -224,6 +236,7 @@ case "$PLATFORM" in
         require_runtime_feature "hwdevice: d3d11va"
         require_runtime_feature "hwdevice: d3d12va"
         require_runtime_feature "hwdevice: dxva2"
+        require_runtime_feature "hwdevice: cuda"
         require_runtime_feature "encoder: h264_mf"
         require_runtime_feature "encoder: hevc_mf"
         require_runtime_feature "encoder: hevc_d3d12va"
@@ -232,6 +245,13 @@ case "$PLATFORM" in
             require_runtime_feature "encoder: h264_d3d12va"
             require_runtime_feature "encoder: av1_d3d12va"
         fi
+        ;;
+esac
+case "$PLATFORM" in
+    linux|win)
+        for encoder in h264_nvenc hevc_nvenc av1_nvenc; do
+            require_runtime_feature "encoder: $encoder"
+        done
         ;;
 esac
 
@@ -243,6 +263,9 @@ case "$PLATFORM" in
     win) SYSTEM_DEPS='^(kernel32|user32|gdi32|ole32|oleaut32|shlwapi|shell32|advapi32|ws2_32|bcrypt|secur32|psapi|ntdll|avicap32|d3d11|d3d12|dxgi|dxva2|mf|mfplat|mfreadwrite|api-ms-win-crt-[a-z0-9-]+)\.dll$' ;;
 esac
 SDK_DEPS="^(@rpath/)?(lib)?($(IFS='|'; echo "${LIBRARIES[*]}"))([-.][0-9.]+)*\.(so|dylib|dll)(\.[0-9]+)*$"
+# NVENC and the cuda hwdevice dlopen/LoadLibrary the NVIDIA driver; no SDK
+# library may link it.
+NVIDIA_DEPS='cuda|nvidia|nvcuvid|nvencodeapi'
 dependency_violations=0
 for library in "${LIBRARIES[@]}"; do
     case "$PLATFORM" in
@@ -263,6 +286,10 @@ for library in "${LIBRARIES[@]}"; do
         [ -n "$dep" ] || continue
         if ! grep -qiE "$SYSTEM_DEPS" <<<"$dep" && ! grep -qiE "$SDK_DEPS" <<<"$dep"; then
             echo "DEPENDENCY VIOLATION: $(basename "$file") depends on $dep" >&2
+            dependency_violations=$((dependency_violations + 1))
+        fi
+        if grep -qiE "$NVIDIA_DEPS" <<<"$dep"; then
+            echo "DEPENDENCY VIOLATION: $(basename "$file") links NVIDIA driver library $dep" >&2
             dependency_violations=$((dependency_violations + 1))
         fi
     done <<<"$deps"
@@ -305,6 +332,9 @@ fi
     echo "SVT-AV1         $SVTAV1_VERSION (BSD-3-Clause-Clear + AOM Patent License 1.0; statically included)"
     if [ "$PLATFORM" = "linux" ]; then
         echo "Vulkan-Headers  $VULKAN_HEADERS_VERSION (Apache-2.0 OR MIT; headers only)"
+    fi
+    if [ "$PLATFORM" = "linux" ] || [ "$PLATFORM" = "win" ]; then
+        echo "nv-codec-headers $NV_CODEC_HEADERS_VERSION (MIT; headers only; NVENC needs NVIDIA driver >= 530.41.03 Linux / >= 531.61 Windows)"
     fi
     if [ "$PLATFORM" = "win" ]; then
         echo "MinGW headers   $MINGW_HEADERS (build-time Windows SDK headers)"

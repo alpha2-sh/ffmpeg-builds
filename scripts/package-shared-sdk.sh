@@ -12,6 +12,7 @@ OPUS_SOURCE_DIR="$SRC_DIR/opus-shared-sdk"
 VPX_SOURCE_DIR="$SRC_DIR/vpx-shared-sdk"
 SVTAV1_SOURCE_DIR="$SRC_DIR/svtav1-shared-sdk"
 VULKAN_HEADERS_SOURCE_DIR="$SRC_DIR/vulkan-headers-shared-sdk"
+NV_CODEC_HEADERS_SOURCE_DIR="$SRC_DIR/nv-codec-headers-shared-sdk"
 LIBRARIES=(avcodec avdevice avfilter avformat avutil swresample swscale)
 PACKAGE_ROOT="$BUILD_ROOT/shared-sdk-package"
 STAGE="$PACKAGE_ROOT/$ASSET_BASE"
@@ -79,6 +80,33 @@ if [ "$PLATFORM" = "linux" ]; then
         "$STAGE/licenses/Vulkan-Headers/"
 fi
 
+if [ "$PLATFORM" = "linux" ] || [ "$PLATFORM" = "win" ]; then
+    mkdir -p "$STAGE/licenses/nv-codec-headers"
+    NV_LICENSE="$(find "$NV_CODEC_HEADERS_SOURCE_DIR" -maxdepth 1 -type f \
+        \( -name 'LICENSE*' -o -name 'COPYING*' \) | sort | head -1)"
+    if [ -n "$NV_LICENSE" ]; then
+        cp "$NV_LICENSE" "$STAGE/licenses/nv-codec-headers/"
+    else
+        # The tag ships no license file; each header carries its own MIT
+        # notice. NVIDIA's API headers and the FFmpeg-authored dynamic loader
+        # (compiled into the libraries) have different copyright holders, so
+        # keep one notice of each.
+        {
+            echo "nv-codec-headers $NV_CODEC_HEADERS_VERSION ships no license file. The notices"
+            echo "below are copied verbatim from the header comments of the files named."
+            for header in nvEncodeAPI.h dynlink_loader.h; do
+                echo
+                echo "--- include/ffnvcodec/$header ---"
+                sed '/\*\//q' "$NV_CODEC_HEADERS_SOURCE_DIR/include/ffnvcodec/$header"
+            done
+        } > "$STAGE/licenses/nv-codec-headers/LICENSE"
+        grep -q 'Permission is hereby granted' "$STAGE/licenses/nv-codec-headers/LICENSE" || {
+            echo "could not extract the nv-codec-headers MIT notice" >&2
+            exit 1
+        }
+    fi
+fi
+
 cat > "$STAGE/README.txt" <<EOF
 FFmpeg shared SDK $VERSION ($PLATFORM-$ARCH)
 
@@ -103,6 +131,16 @@ the public FFmpeg Vulkan API; libvulkan.so.1, an ICD and a Vulkan Video-capable
 GPU driver must be supplied by the target system. Full build configuration is
 published beside this archive as $ASSET_BASE.configure.txt.
 EOF
+if [ "$PLATFORM" = "linux" ] || [ "$PLATFORM" = "win" ]; then
+    cat >> "$STAGE/README.txt" <<EOF
+
+NVENC (h264_nvenc, hevc_nvenc, av1_nvenc) is built from the MIT
+nv-codec-headers $NV_CODEC_HEADERS_VERSION, whose notice is under
+licenses/nv-codec-headers/. The NVIDIA driver is loaded at run time and is not
+part of this archive; NVENC needs driver >= 530.41.03 (Linux) or >= 531.61
+(Windows). Without it the libraries still load and every other codec works.
+EOF
+fi
 PATCHES="$(shared_sdk_patches)"
 if [ -n "$PATCHES" ]; then
     {
