@@ -14,25 +14,47 @@ LIBRARIES=(avcodec avdevice avfilter avformat avutil swresample swscale)
     exit 1
 }
 
-# The backported patches must be the ones in the source that was built: each
-# one reverse-applies cleanly to the built tree.
+# The patches must be the ones in the source that was built: the tracked files
+# of the built tree must equal the checked-out tag with every patch applied in
+# order. Patches may touch neighbouring lines, so they are applied to a scratch
+# index instead of being reverse-checked one by one against the final tree.
 sha256_of() {
     if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi \
         | awk '{ print $1 }'
 }
+ZERO_COMMIT=0000000000000000000000000000000000000000
+PATCH_INDEX_DIR="$(mktemp -d)"
+trap 'rm -rf "$PATCH_INDEX_DIR"' EXIT
+export GIT_INDEX_FILE="$PATCH_INDEX_DIR/index"
+git -C "$FFMPEG_SOURCE_DIR" read-tree HEAD
 PATCH_REPORT=""
 for patch in $(shared_sdk_patches); do
-    git -C "$FFMPEG_SOURCE_DIR" apply --reverse --check "$patch" || {
-        echo "PATCH VIOLATION: $(basename "$patch") is not applied to $FFMPEG_SOURCE_DIR" >&2
+    git -C "$FFMPEG_SOURCE_DIR" apply --cached "$patch" || {
+        echo "PATCH VIOLATION: $(basename "$patch") does not apply in order onto $FFMPEG_TAG" >&2
         exit 1
     }
+    # A backport is the unmodified `git format-patch` of an upstream commit. A
+    # fix upstream does not have yet carries an `Upstream-Status: Pending` line
+    # in its message and is exported with `git format-patch --zero-commit`.
     upstream="$(sed -n '1s/^From \([0-9a-f]\{40\}\) .*/\1/p' "$patch")"
-    [ -n "$upstream" ] || {
-        echo "PATCH VIOLATION: $(basename "$patch") does not name its upstream commit" >&2
+    if awk '/^---$/ { exit } /^Upstream-Status: Pending$/ { found = 1; exit } END { exit !found }' "$patch"; then
+        [ "$upstream" = "$ZERO_COMMIT" ] || {
+            echo "PATCH VIOLATION: $(basename "$patch") is pending upstream but names commit $upstream" >&2
+            exit 1
+        }
+        upstream="pending"
+    elif [ -z "$upstream" ] || [ "$upstream" = "$ZERO_COMMIT" ]; then
+        echo "PATCH VIOLATION: $(basename "$patch") names neither an upstream commit nor Upstream-Status: Pending" >&2
         exit 1
-    }
+    fi
     PATCH_REPORT+="$(basename "$patch") sha256 $(sha256_of "$patch") upstream $upstream"$'\n'
 done
+git -C "$FFMPEG_SOURCE_DIR" diff --quiet || {
+    echo "PATCH VIOLATION: $FFMPEG_SOURCE_DIR is not $FFMPEG_TAG with exactly the patches in patches/$FFMPEG_TAG" >&2
+    git -C "$FFMPEG_SOURCE_DIR" diff --stat >&2
+    exit 1
+}
+unset GIT_INDEX_FILE
 
 BUILDCONF="$(sed -n 's/^FFMPEG_CONFIGURATION=//p' "$FFMPEG_SOURCE_DIR/ffbuild/config.mak")"
 [ -n "$BUILDCONF" ] || { echo "could not read FFmpeg configuration" >&2; exit 1; }

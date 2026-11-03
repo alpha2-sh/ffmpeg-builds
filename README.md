@@ -284,18 +284,35 @@ n13 headers, which need driver 570+, because the oldest supported datacenter
 driver branch (R535) is above the 530.41.03 / 531.61 floor. The
 dependency prefix remains separate from the static CLI dependency prefix.
 
-Upstream FFmpeg fixes that a release line needs before upstream ships them in
-a point release live in `patches/<tag>/` (for example `patches/n8.0.3/`), one
-unmodified `git format-patch` of the upstream commit per file. `build-shared-sdk.sh`
-applies them in file-name order with `git apply` to a pristine checkout, so the
-runtime still reports the release tag; `verify-shared-sdk.sh` fails unless each
-one is applied and records them (file, SHA-256, upstream commit) in the report;
-and the release publishes the patch files beside the upstream source, since
-they are part of the corresponding source. FFmpeg 8.0.3 and 8.1.3 both carry
-`0661ef6bb3e5` (H.264 frees a picture's hardware data before its frame, so a
-Vulkan decoder no longer waits on a destroyed semaphore after an SPS change)
-and `ddfa842088cd` (the Vulkan encoder destroys the image views of pictures
-still queued at close).
+FFmpeg fixes that a release line needs before upstream ships them in a point
+release live in `patches/<tag>/` (for example `patches/n8.0.3/`), one patch per
+file. A backport is the unmodified `git format-patch` of the upstream commit. A
+fix that upstream does not have yet carries an `Upstream-Status: Pending` line in
+its commit message and is exported with `git format-patch --zero-commit`; once
+upstream merges it, it is replaced by the backport. `build-shared-sdk.sh` applies
+the patches in file-name order with `git apply` to a pristine checkout, so the
+runtime still reports the release tag. `verify-shared-sdk.sh` fails unless the
+built source is exactly the tag plus every patch in order, and records each one
+(file, SHA-256, upstream commit or `pending`) in the report. The release
+publishes the patch files beside the upstream source, since they are part of the
+corresponding source.
+
+FFmpeg 8.0.3 and 8.1.3 both carry `0661ef6bb3e5` (H.264 frees a picture's
+hardware data before its frame, so a Vulkan decoder no longer waits on a
+destroyed semaphore after an SPS change) and `ddfa842088cd` (the Vulkan encoder
+destroys the image views of pictures still queued at close). FFmpeg 8.1.3 also
+carries two fixes for memory that every Vulkan encoder session leaked, which
+grows a long-running process without bound:
+
+- `569674ac8dc0`: the H.264, HEVC and AV1 Vulkan encoders close their CBS
+  context on close (1 MiB write buffer per session).
+- not yet upstream: the Vulkan encoder releases the bitstream buffer of a
+  picture that was issued but never output, as when an encode is cancelled
+  (a mapped host-visible buffer of 3 x width x height + 64 KiB per close, about
+  6 MiB at 1080p).
+
+The related `b672ae390537` (encoded session parameters freed in
+`init_base_units()`) is already in 8.1.3.
 
 Release tags and assets use the `ffmpeg-<version>-shared-*` naming scheme, so they
 cannot collide with the static CLI releases. Each release also includes the
@@ -401,7 +418,7 @@ glibc, so it will not carry the 2.35 floor that the CI container guarantees.
 │   ├── verify-shared-sdk.sh      # SDK ABI/license/runtime audit
 │   ├── package-shared-sdk.sh     # relocatable SDK archive
 │   └── release-notes-shared-sdk.sh # shared SDK release body
-├── patches/<tag>/                # upstream fixes backported onto a shared SDK tag
+├── patches/<tag>/                # FFmpeg fixes applied onto a shared SDK tag
 └── README.md
 ```
 

@@ -145,8 +145,9 @@ PATCHES="$(shared_sdk_patches)"
 if [ -n "$PATCHES" ]; then
     {
         echo
-        echo "Upstream FFmpeg fixes backported onto $FFMPEG_TAG, in order (published as"
-        echo "release assets beside the upstream source; the runtime still reports $FFMPEG_TAG):"
+        echo "FFmpeg fixes applied onto $FFMPEG_TAG, in order: upstream backports and fixes"
+        echo "not yet upstream (published as release assets beside the upstream source;"
+        echo "the runtime still reports $FFMPEG_TAG):"
         for patch in $PATCHES; do
             echo "  $(basename "$patch")"
         done

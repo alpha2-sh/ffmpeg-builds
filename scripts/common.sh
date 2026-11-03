@@ -99,7 +99,7 @@ fetch_source() {
 }
 
 # shared_sdk_patches
-# Prints the patch files backported onto the shared SDK's $FFMPEG_TAG, in the
+# Prints the patch files applied onto the shared SDK's $FFMPEG_TAG, in the
 # order they apply (file-name order); nothing when that tag has none.
 shared_sdk_patches() {
     local dir="$REPO_ROOT/patches/$FFMPEG_TAG"

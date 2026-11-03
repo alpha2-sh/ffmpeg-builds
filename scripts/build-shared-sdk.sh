@@ -39,9 +39,9 @@ FFMPEG_SOURCE_DIR="$SRC_DIR/ffmpeg-shared-sdk"
 export FFMPEG_SOURCE_DIR
 cd "$FFMPEG_SOURCE_DIR"
 
-# Upstream fixes backported onto this release, applied in file-name order. A
-# reused checkout is first returned to the pristine tag so a second build does
-# not apply them twice. `git apply` leaves HEAD at the tag, so the runtime still
+# Fixes applied onto this release (upstream backports and fixes upstream does
+# not have yet), in file-name order. A reused checkout is first returned to the
+# pristine tag so a second build does not apply them twice. `git apply` leaves HEAD at the tag, so the runtime still
 # reports $FFMPEG_TAG; verify-shared-sdk.sh records the applied set in the
 # report and the release publishes the patch files as source.
 git reset --quiet --hard

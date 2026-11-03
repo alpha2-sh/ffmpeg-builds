@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AtlasYang <atlas.yang3598@gmail.com>
+Date: Tue, 3 Nov 2026 11:49:09 +0900
+Subject: [PATCH] vulkan_encode: release the packet buffer of pictures freed
+ before output
+
+vulkan_encode_issue() takes a host-visible bitstream buffer from the
+pool into vp->pkt_buf, and only vulkan_encode_output() hands it on, to
+the packet or to ctx->prev_buf_ref. A picture that is issued but never
+output, because the encoder is closed before it is drained or because
+issue fails after taking the buffer, is freed through
+vulkan_encode_free_pic() with its reference still held. The pool is
+uninitialised, but it lives on while a buffer is out, so the VkBuffer,
+its memory and its mapping (3 * width * height + 64 KiB, about 6 MiB at
+1080p) stay for the life of the process. A long-running process that
+cancels encodes accumulates one per close.
+
+Unref vp->pkt_buf when a picture is freed, and ctx->prev_buf_ref on
+uninit, which holds the buffer of a non-independent frame until the
+next picture is output. The execution context holds its own reference
+while the GPU writes the buffer, and ff_vulkan_encode_uninit() waits on
+the execution pool before freeing the queued pictures.
+
+Upstream-Status: Pending
+---
+ libavcodec/vulkan_encode.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/libavcodec/vulkan_encode.c b/libavcodec/vulkan_encode.c
+index 1e69c73242..880a4b7a09 100644
+--- a/libavcodec/vulkan_encode.c
++++ b/libavcodec/vulkan_encode.c
+@@ -46,6 +46,9 @@ static void vulkan_encode_free_pic(FFVulkanEncodeContext *ctx,
+     vp->in.view = VK_NULL_HANDLE;
+     vp->dpb.view = VK_NULL_HANDLE;
+ 
++    /* Only set if the picture was issued but never output */
++    av_buffer_unref(&vp->pkt_buf);
++
+     ctx->slots[vp->dpb_slot.slotIndex] = NULL;
+ }
+ 
+@@ -68,6 +71,9 @@ av_cold void ff_vulkan_encode_uninit(FFVulkanEncodeContext *ctx)
+     for (FFHWBaseEncodePicture *pic = ctx->base.pic_start; pic; pic = pic->next)
+         vulkan_encode_free_pic(ctx, pic);
+ 
++    /* Held across pictures for a non-independent frame */
++    av_buffer_unref(&ctx->prev_buf_ref);
++
+     av_buffer_pool_uninit(&ctx->buf_pool);
+ 
+     ff_hw_base_encode_close(&ctx->base);
+-- 
+2.34.1
+

@@ -72,18 +72,24 @@ human_size() { numfmt --to=iec-i --suffix=B --format='%.1f' < <(stat -c %s "$1")
     echo
     PATCH_DIR="$(dirname "${BASH_SOURCE[0]}")/../patches/${FFMPEG_TAG:-n$VERSION}"
     if [ -d "$PATCH_DIR" ]; then
-        echo "## Backported upstream fixes"
+        echo "## FFmpeg patches"
         echo
-        echo "These libraries are FFmpeg ${VERSION} with the following upstream commits"
-        echo "applied, in order. Each patch is a release asset and part of the corresponding"
-        echo "source; the runtime still reports n${VERSION}."
+        echo "These libraries are FFmpeg ${VERSION} with the following patches applied, in"
+        echo "order: backports of upstream commits, and fixes not yet in upstream FFmpeg."
+        echo "Each patch is a release asset and part of the corresponding source; the"
+        echo "runtime still reports n${VERSION}."
         echo
         for patch in $(find "$PATCH_DIR" -maxdepth 1 -type f -name '*.patch' | LC_ALL=C sort); do
             name="$(basename "$patch")"
             upstream="$(sed -n '1s/^From \([0-9a-f]\{40\}\) .*/\1/p' "$patch")"
             subject="$(awk '/^Subject: / { s = $0; while ((getline line) > 0 && line ~ /^ /) s = s line; sub(/^Subject: \[PATCH\] /, "", s); print s; exit }' "$patch")"
-            printf -- '- [%s](%s/%s): FFmpeg [%s](https://github.com/FFmpeg/FFmpeg/commit/%s) %s\n' \
-                "$name" "$DL_BASE" "$name" "${upstream:0:12}" "$upstream" "$subject"
+            if awk '/^---$/ { exit } /^Upstream-Status: Pending$/ { found = 1; exit } END { exit !found }' "$patch"; then
+                printf -- '- [%s](%s/%s): not yet in upstream FFmpeg: %s\n' \
+                    "$name" "$DL_BASE" "$name" "$subject"
+            else
+                printf -- '- [%s](%s/%s): FFmpeg [%s](https://github.com/FFmpeg/FFmpeg/commit/%s) %s\n' \
+                    "$name" "$DL_BASE" "$name" "${upstream:0:12}" "$upstream" "$subject"
+            fi
         done
         echo
     fi
