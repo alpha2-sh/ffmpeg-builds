@@ -364,7 +364,7 @@ they describe - a link into a CI log that expires is not enough for an audit.
 ### Via GitHub Actions
 
 1. Actions → **Build FFmpeg (LGPL)** → **Run workflow**
-2. `ffmpeg_version` - choose `n8.0.3` or `n9.0.1`
+2. `ffmpeg_version` - choose `n8.0.3`, `n8.1.3` or `n9.0.1`
 3. `draft_release` - create the release as a draft instead of publishing it
 4. `rebuild_deps` - ignore the dependency cache and rebuild every library
 

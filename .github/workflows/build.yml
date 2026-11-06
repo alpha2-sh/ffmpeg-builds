@@ -19,6 +19,7 @@ on:
         type: choice
         options:
           - "n9.0.1"
+          - "n8.1.3"
           - "n8.0.3"
         default: "n9.0.1"
       draft_release:
@@ -59,7 +60,7 @@ jobs:
           set -euo pipefail
           ffmpeg_tag="$FFMPEG_VERSION_INPUT"
           case "$ffmpeg_tag" in
-              n8.0.3|n9.0.1) ;;
+              n8.0.3|n8.1.3|n9.0.1) ;;
               *) echo "unsupported FFmpeg tag: $ffmpeg_tag" >&2; exit 1 ;;
           esac
           # Strip the leading "n" of the FFmpeg git tag: n9.0.1 -> 9.0.1
